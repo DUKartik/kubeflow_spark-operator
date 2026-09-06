@@ -112,17 +112,11 @@ type SparkPodSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Cores *int32 `json:"cores,omitempty"`
 
-	// CoreRequest is the physical CPU core request for the pod.
-	// For a SparkConnect server, the operator applies it directly to the operator-created
-	// server pod's container resources.requests.cpu. For a SparkConnect executor, it is
-	// passed to Spark as spark.kubernetes.executor.request.cores.
+	// CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.
 	// +optional
 	CoreRequest *resource.Quantity `json:"coreRequest,omitempty"`
 
-	// CoreLimit is the physical CPU core limit for the pod.
-	// For a SparkConnect server, the operator applies it directly to the operator-created
-	// server pod's container resources.limits.cpu. For a SparkConnect executor, it is
-	// passed to Spark as spark.kubernetes.executor.limit.cores.
+	// CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.
 	// +optional
 	CoreLimit *resource.Quantity `json:"coreLimit,omitempty"`
 

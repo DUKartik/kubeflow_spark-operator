@@ -442,13 +442,13 @@ func schema_spark_operator_v2_api_v1alpha1_ExecutorSpec(ref common.ReferenceCall
 					},
 					"coreRequest": {
 						SchemaProps: spec.SchemaProps{
-							Description: "CoreRequest is the physical CPU core request for the pod. For a SparkConnect server, the operator applies it directly to the operator-created server pod's container resources.requests.cpu. For a SparkConnect executor, it is passed to Spark as spark.kubernetes.executor.request.cores.",
+							Description: "CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.",
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
 					"coreLimit": {
 						SchemaProps: spec.SchemaProps{
-							Description: "CoreLimit is the physical CPU core limit for the pod. For a SparkConnect server, the operator applies it directly to the operator-created server pod's container resources.limits.cpu. For a SparkConnect executor, it is passed to Spark as spark.kubernetes.executor.limit.cores.",
+							Description: "CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.",
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
@@ -496,13 +496,13 @@ func schema_spark_operator_v2_api_v1alpha1_ServerSpec(ref common.ReferenceCallba
 					},
 					"coreRequest": {
 						SchemaProps: spec.SchemaProps{
-							Description: "CoreRequest is the physical CPU core request for the pod. For a SparkConnect server, the operator applies it directly to the operator-created server pod's container resources.requests.cpu. For a SparkConnect executor, it is passed to Spark as spark.kubernetes.executor.request.cores.",
+							Description: "CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.",
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
 					"coreLimit": {
 						SchemaProps: spec.SchemaProps{
-							Description: "CoreLimit is the physical CPU core limit for the pod. For a SparkConnect server, the operator applies it directly to the operator-created server pod's container resources.limits.cpu. For a SparkConnect executor, it is passed to Spark as spark.kubernetes.executor.limit.cores.",
+							Description: "CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.",
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
@@ -843,13 +843,13 @@ func schema_spark_operator_v2_api_v1alpha1_SparkPodSpec(ref common.ReferenceCall
 					},
 					"coreRequest": {
 						SchemaProps: spec.SchemaProps{
-							Description: "CoreRequest is the physical CPU core request for the pod. For a SparkConnect server, the operator applies it directly to the operator-created server pod's container resources.requests.cpu. For a SparkConnect executor, it is passed to Spark as spark.kubernetes.executor.request.cores.",
+							Description: "CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.",
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
 					"coreLimit": {
 						SchemaProps: spec.SchemaProps{
-							Description: "CoreLimit is the physical CPU core limit for the pod. For a SparkConnect server, the operator applies it directly to the operator-created server pod's container resources.limits.cpu. For a SparkConnect executor, it is passed to Spark as spark.kubernetes.executor.limit.cores.",
+							Description: "CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.",
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},

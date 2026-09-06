@@ -31,6 +31,7 @@ import (
 
 	"github.com/kubeflow/spark-operator/v2/api/v1alpha1"
 	"github.com/kubeflow/spark-operator/v2/internal/controller/sparkconnect"
+	"github.com/kubeflow/spark-operator/v2/pkg/util"
 )
 
 var _ = Describe("SparkConnect CPU Resources", func() {
@@ -40,11 +41,11 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 	// are actually applied to the operator-created server pod and surfaced
 	// in the spark-submit args for executor pods.
 	//
-	// Every value asserted here is written by the operator when it first creates
-	// the server pod, so the tests wait only for the pod to appear rather than
-	// for the Spark Connect server inside it to become ready. Waiting on
-	// readiness would add a Spark image pull plus JVM startup per spec for no
-	// extra coverage; a live server is exercised by the SparkConnect Query test.
+	// The "Apply server CoreRequest/CoreLimit" Context only waits for the
+	// server pod to be created — its assertions only depend on fields the
+	// operator writes at pod-creation time, and waiting on readiness would
+	// add JVM startup per spec for no extra coverage. The "Precedence"
+	// Context adds a separate It that does exercise readiness end-to-end.
 	Context("Apply server CoreRequest/CoreLimit to the server pod", func() {
 		ctx := context.Background()
 
@@ -59,7 +60,7 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 				},
 				Spec: v1alpha1.SparkConnectSpec{
 					Image:        &image,
-					SparkVersion: "4.0.0",
+					SparkVersion: "4.0.4",
 					Server: v1alpha1.ServerSpec{
 						SparkPodSpec: v1alpha1.SparkPodSpec{
 							Cores:       ptr.To[int32](1),
@@ -134,7 +135,7 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 				},
 				Spec: v1alpha1.SparkConnectSpec{
 					Image:        &image,
-					SparkVersion: "4.0.0",
+					SparkVersion: "4.0.4",
 					Server: v1alpha1.ServerSpec{
 						SparkPodSpec: v1alpha1.SparkPodSpec{
 							CoreRequest: ptr.To(resource.MustParse("500m")),
@@ -206,6 +207,24 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 			Expect(ok).To(BeTrue(), "template memory limit should be preserved")
 			Expect(memLim.Equal(resource.MustParse("1Gi"))).To(BeTrue(),
 				"expected template memory 1Gi to be preserved, got %s", memLim.String())
+		})
+
+		It("creates a server pod that eventually becomes ready", func() {
+			By("Creating the SparkConnect")
+			Expect(k8sClient.Create(ctx, conn)).To(Succeed())
+
+			By("Waiting for the operator to create the server pod")
+			serverPod := waitForServerPod(ctx, conn)
+
+			By("Waiting for the server pod to become ready")
+			Eventually(func() bool {
+				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPod.Name}
+				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
+					return false
+				}
+				return util.IsPodReady(serverPod)
+			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue(),
+				"operator-created server pod should become ready within %s", WaitTimeout)
 		})
 	})
 })
