@@ -31,7 +31,6 @@ import (
 
 	"github.com/kubeflow/spark-operator/v2/api/v1alpha1"
 	"github.com/kubeflow/spark-operator/v2/internal/controller/sparkconnect"
-	"github.com/kubeflow/spark-operator/v2/pkg/util"
 )
 
 var _ = Describe("SparkConnect CPU Resources", func() {
@@ -40,6 +39,12 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 	// example yaml) so that they can assert the specific values they wrote
 	// are actually applied to the operator-created server pod and surfaced
 	// in the spark-submit args for executor pods.
+	//
+	// Every value asserted here is written by the operator when it first creates
+	// the server pod, so the tests wait only for the pod to appear rather than
+	// for the Spark Connect server inside it to become ready. Waiting on
+	// readiness would add a Spark image pull plus JVM startup per spec for no
+	// extra coverage; a live server is exercised by the SparkConnect Query test.
 	Context("Apply server CoreRequest/CoreLimit to the server pod", func() {
 		ctx := context.Background()
 
@@ -81,21 +86,12 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 			}
 		})
 
-		It("reflects server.coreRequest and server.coreLimit on the operator-created server pod", func() {
+		It("applies server CPU resources to the server pod and emits executor CPU conf", func() {
 			By("Creating the SparkConnect")
 			Expect(k8sClient.Create(ctx, conn)).To(Succeed())
 
-			serverPodName := sparkconnect.GetServerPodName(conn)
-
-			By("Waiting for the server pod to be ready")
-			serverPod := &corev1.Pod{}
-			Eventually(func() bool {
-				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}
-				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
-					return false
-				}
-				return util.IsPodReady(serverPod)
-			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue())
+			By("Waiting for the operator to create the server pod")
+			serverPod := waitForServerPod(ctx, conn)
 
 			By("Asserting the server container CPU request matches spec.server.coreRequest")
 			cpuReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
@@ -108,29 +104,11 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 			Expect(ok).To(BeTrue(), "server pod should have a CPU limit set")
 			Expect(cpuLim.Equal(resource.MustParse("1"))).To(BeTrue(),
 				"expected server CPU limit 1, got %s", cpuLim.String())
-		})
-
-		It("emits spark.kubernetes.executor.{request,limit}.cores via the operator-created server pod args", func() {
-			By("Creating the SparkConnect")
-			Expect(k8sClient.Create(ctx, conn)).To(Succeed())
-
-			serverPodName := sparkconnect.GetServerPodName(conn)
-
-			By("Waiting for the server pod to be ready")
-			serverPod := &corev1.Pod{}
-			Eventually(func() bool {
-				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}
-				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
-					return false
-				}
-				return util.IsPodReady(serverPod)
-			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue())
 
 			By("Asserting the server pod args contain the executor CPU conf keys")
 			// The server pod's args string is built from buildStartConnectServerArgs and includes
 			// --conf spark.kubernetes.executor.request.cores=... and --conf spark.kubernetes.executor.limit.cores=...
 			// generated from executor.coreRequest / executor.coreLimit.
-			Expect(serverPod.Spec.Containers).NotTo(BeEmpty())
 			args := serverPod.Spec.Containers[0].Args
 			Expect(args).NotTo(BeEmpty(), "server pod args should be set by the operator")
 			allArgs := strings.Join(args, " ")
@@ -202,17 +180,8 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 			By("Creating the SparkConnect")
 			Expect(k8sClient.Create(ctx, conn)).To(Succeed())
 
-			serverPodName := sparkconnect.GetServerPodName(conn)
-
-			By("Waiting for the server pod to be ready")
-			serverPod := &corev1.Pod{}
-			Eventually(func() bool {
-				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}
-				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
-					return false
-				}
-				return util.IsPodReady(serverPod)
-			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue())
+			By("Waiting for the operator to create the server pod")
+			serverPod := waitForServerPod(ctx, conn)
 
 			By("Asserting spec.server.coreRequest wins for the CPU request")
 			cpuReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
@@ -240,3 +209,22 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 		})
 	})
 })
+
+// waitForServerPod waits until the operator has created the SparkConnect server pod
+// and returns it. It deliberately does not wait for the pod to become ready: the
+// caller asserts on fields the operator writes when it first creates the pod.
+func waitForServerPod(ctx context.Context, conn *v1alpha1.SparkConnect) *corev1.Pod {
+	GinkgoHelper()
+
+	key := types.NamespacedName{
+		Namespace: conn.Namespace,
+		Name:      sparkconnect.GetServerPodName(conn),
+	}
+	serverPod := &corev1.Pod{}
+	Eventually(func() error {
+		return k8sClient.Get(ctx, key, serverPod)
+	}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(Succeed())
+
+	Expect(serverPod.Spec.Containers).NotTo(BeEmpty(), "server pod should have at least one container")
+	return serverPod
+}
