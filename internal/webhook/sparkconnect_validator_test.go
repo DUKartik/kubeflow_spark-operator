@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -433,7 +434,8 @@ func TestSparkConnectValidatorValidateCreate_InvalidServerCoreRequest(t *testing
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Server.CoreRequest = ptr.To("invalid-cpu")
+	zero := resource.MustParse("0")
+	sc.Spec.Server.CoreRequest = &zero
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "invalid server.coreRequest") {
 		t.Fatalf("expected invalid coreRequest validation error, got %v", err)
@@ -444,7 +446,8 @@ func TestSparkConnectValidatorValidateCreate_InvalidServerCoreLimit(t *testing.T
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Server.CoreLimit = ptr.To("invalid-cpu-value")
+	zero := resource.MustParse("0")
+	sc.Spec.Server.CoreLimit = &zero
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "invalid server.coreLimit") {
 		t.Fatalf("expected invalid coreLimit validation error, got %v", err)
@@ -455,7 +458,8 @@ func TestSparkConnectValidatorValidateCreate_InvalidExecutorCoreRequest(t *testi
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Executor.CoreRequest = ptr.To("not-a-quantity")
+	zero := resource.MustParse("0")
+	sc.Spec.Executor.CoreRequest = &zero
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "invalid executor.coreRequest") {
 		t.Fatalf("expected invalid coreRequest validation error, got %v", err)
@@ -466,7 +470,8 @@ func TestSparkConnectValidatorValidateCreate_InvalidExecutorCoreLimit(t *testing
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Executor.CoreLimit = ptr.To("bad-quantity")
+	zero := resource.MustParse("0")
+	sc.Spec.Executor.CoreLimit = &zero
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "invalid executor.coreLimit") {
 		t.Fatalf("expected invalid coreLimit validation error, got %v", err)
@@ -489,10 +494,11 @@ func TestSparkConnectValidatorValidateCreate_ValidCPUQuantities(t *testing.T) {
 	for _, cpu := range testCases {
 		t.Run(cpu, func(t *testing.T) {
 			sc := newSparkConnect()
-			sc.Spec.Server.CoreRequest = ptr.To(cpu)
-			sc.Spec.Server.CoreLimit = ptr.To(cpu)
-			sc.Spec.Executor.CoreRequest = ptr.To(cpu)
-			sc.Spec.Executor.CoreLimit = ptr.To(cpu)
+			q := resource.MustParse(cpu)
+			sc.Spec.Server.CoreRequest = &q
+			sc.Spec.Server.CoreLimit = &q
+			sc.Spec.Executor.CoreRequest = &q
+			sc.Spec.Executor.CoreLimit = &q
 
 			if _, err := validator.ValidateCreate(context.Background(), sc); err != nil {
 				t.Fatalf("expected success for valid CPU quantity %q, got %v", cpu, err)
@@ -504,36 +510,30 @@ func TestSparkConnectValidatorValidateCreate_ValidCPUQuantities(t *testing.T) {
 func TestValidateCPUQuantity(t *testing.T) {
 	testCases := []struct {
 		name    string
-		cpu     string
+		cpu     *resource.Quantity
 		wantErr bool
 	}{
-		// Valid cases following Kubernetes quantity semantics via resource.ParseQuantity
-		{"millicores", "500m", false},
-		{"integer cores", "1", false},
-		{"decimal cores", "1.5", false},
-		{"decimal cores 2", "2.5", false},
-		{"large millicores", "4000m", false},
-		{"large decimal", "8.5", false},
-		{"leading decimal", ".5", false},
-		{"trailing decimal", "5.", false},
+		// Valid cases following Kubernetes quantity semantics
+		{"millicores", ptr.To(resource.MustParse("500m")), false},
+		{"integer cores", ptr.To(resource.MustParse("1")), false},
+		{"decimal cores", ptr.To(resource.MustParse("1.5")), false},
+		{"decimal cores 2", ptr.To(resource.MustParse("2.5")), false},
+		{"large millicores", ptr.To(resource.MustParse("4000m")), false},
+		{"large decimal", ptr.To(resource.MustParse("8.5")), false},
 
-		// Invalid cases - empty, malformed, zero, or negative values are not acceptable CPU
+		// Invalid cases - zero, negative, or nil values are not acceptable CPU
 		// resource quantities for request/limit fields.
-		{"empty string", "", true},
-		{"space only", "   ", true},
-		{"invalid suffix", "500x", true},
-		{"invalid chars", "1a0", true},
-		{"zero integer", "0", true},
-		{"zero with millis", "0m", true},
-		{"negative", "-500m", true},
-		{"millis only (parses to 0)", "m", true},
+		{"nil pointer", nil, true},
+		{"zero integer", ptr.To(resource.MustParse("0")), true},
+		{"zero with millis", ptr.To(resource.MustParse("0m")), true},
+		{"negative millicores", ptr.To(resource.MustParse("-500m")), true},
 	}
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateCPUQuantity(tt.cpu)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateCPUQuantity(%q) wantErr=%v, got err=%v", tt.cpu, tt.wantErr, err)
+				t.Fatalf("validateCPUQuantity(%v) wantErr=%v, got err=%v", tt.cpu, tt.wantErr, err)
 			}
 		})
 	}
@@ -542,25 +542,23 @@ func TestValidateCPUQuantity(t *testing.T) {
 func TestValidateCPURequestLELimit(t *testing.T) {
 	testCases := []struct {
 		name    string
-		request string
-		limit   string
+		request *resource.Quantity
+		limit   *resource.Quantity
 		wantErr bool
 	}{
-		{"equal integers", "1", "1", false},
-		{"equal millis", "500m", "500m", false},
-		{"request less than limit", "500m", "1", false},
-		{"request less than limit decimal", "1.5", "2.5", false},
-		{"request greater than limit", "2", "1", true},
-		{"request greater than limit decimal", "2.5", "1.5", true},
-		{"invalid request", "abc", "1", true},
-		{"invalid limit", "1", "xyz", true},
+		{"equal integers", ptr.To(resource.MustParse("1")), ptr.To(resource.MustParse("1")), false},
+		{"equal millis", ptr.To(resource.MustParse("500m")), ptr.To(resource.MustParse("500m")), false},
+		{"request less than limit", ptr.To(resource.MustParse("500m")), ptr.To(resource.MustParse("1")), false},
+		{"request less than limit decimal", ptr.To(resource.MustParse("1.5")), ptr.To(resource.MustParse("2.5")), false},
+		{"request greater than limit", ptr.To(resource.MustParse("2")), ptr.To(resource.MustParse("1")), true},
+		{"request greater than limit decimal", ptr.To(resource.MustParse("2.5")), ptr.To(resource.MustParse("1.5")), true},
 	}
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateCPURequestLELimit(tt.request, tt.limit)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateCPURequestLELimit(%q, %q) wantErr=%v, got err=%v", tt.request, tt.limit, tt.wantErr, err)
+				t.Fatalf("validateCPURequestLELimit(%v, %v) wantErr=%v, got err=%v", tt.request, tt.limit, tt.wantErr, err)
 			}
 		})
 	}
@@ -570,8 +568,8 @@ func TestSparkConnectValidatorValidateCreate_ServerCoreRequestExceedsLimit(t *te
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Server.CoreRequest = ptr.To("2")
-	sc.Spec.Server.CoreLimit = ptr.To("1")
+	sc.Spec.Server.CoreRequest = ptr.To(resource.MustParse("2"))
+	sc.Spec.Server.CoreLimit = ptr.To(resource.MustParse("1"))
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
 		t.Fatalf("expected server coreRequest/coreLimit validation error, got %v", err)
@@ -582,8 +580,8 @@ func TestSparkConnectValidatorValidateCreate_ExecutorCoreRequestExceedsLimit(t *
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Executor.CoreRequest = ptr.To("2")
-	sc.Spec.Executor.CoreLimit = ptr.To("1")
+	sc.Spec.Executor.CoreRequest = ptr.To(resource.MustParse("2"))
+	sc.Spec.Executor.CoreLimit = ptr.To(resource.MustParse("1"))
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
 		t.Fatalf("expected executor coreRequest/coreLimit validation error, got %v", err)
@@ -594,7 +592,8 @@ func TestSparkConnectValidatorValidateCreate_ServerZeroCoreRequest(t *testing.T)
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Server.CoreRequest = ptr.To("0")
+	zero := resource.MustParse("0")
+	sc.Spec.Server.CoreRequest = &zero
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "greater than zero") {
 		t.Fatalf("expected server.coreRequest zero-value validation error, got %v", err)
@@ -605,7 +604,8 @@ func TestSparkConnectValidatorValidateCreate_ExecutorNegativeCoreLimit(t *testin
 	validator := newTestSparkConnectValidator(t)
 
 	sc := newSparkConnect()
-	sc.Spec.Executor.CoreLimit = ptr.To("-500m")
+	neg := resource.NewMilliQuantity(-500, resource.DecimalSI)
+	sc.Spec.Executor.CoreLimit = neg
 
 	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "must not be negative") {
 		t.Fatalf("expected negative coreLimit validation error, got %v", err)

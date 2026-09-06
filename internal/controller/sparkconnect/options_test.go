@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubeflow/spark-operator/v2/api/v1alpha1"
@@ -133,8 +134,8 @@ var _ = Describe("Options functions", func() {
 	Context("driverConfOption and executorConfOption with CPU resources", func() {
 		It("does not emit driver SparkConf keys for server CoreRequest and CoreLimit", func() {
 			cores := int32(4)
-			coreRequest := "3500m"
-			coreLimit := "4"
+			coreRequest := resource.MustParse("3500m")
+			coreLimit := resource.MustParse("4")
 			conn := &v1alpha1.SparkConnect{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-spark",
@@ -170,8 +171,8 @@ var _ = Describe("Options functions", func() {
 		It("includes CoreRequest and CoreLimit in executor configuration", func() {
 			cores := int32(4)
 			instances := int32(2)
-			coreRequest := "3500m"
-			coreLimit := "4"
+			coreRequest := resource.MustParse("3500m")
+			coreLimit := resource.MustParse("4")
 			conn := &v1alpha1.SparkConnect{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-spark",
@@ -237,7 +238,7 @@ var _ = Describe("Options functions", func() {
 
 		It("includes only CoreRequest when CoreLimit is omitted for executor", func() {
 			cores := int32(4)
-			coreRequest := "500m"
+			coreRequest := resource.MustParse("500m")
 			conn := &v1alpha1.SparkConnect{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-spark",
@@ -268,8 +269,8 @@ var _ = Describe("Options functions", func() {
 
 		It("supports decimal CPU values for executor", func() {
 			cores := int32(4)
-			coreRequest := "1.5"
-			coreLimit := "2.5"
+			coreRequest := resource.MustParse("1.5")
+			coreLimit := resource.MustParse("2.5")
 			conn := &v1alpha1.SparkConnect{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-spark",
@@ -292,9 +293,10 @@ var _ = Describe("Options functions", func() {
 			Expect(err).NotTo(HaveOccurred())
 			config := shellParsedSparkConfig(args)
 
-			// Verify decimal values are preserved as strings
-			Expect(config).To(HaveKeyWithValue(common.SparkKubernetesExecutorRequestCores, "1.5"))
-			Expect(config).To(HaveKeyWithValue(common.SparkKubernetesExecutorLimitCores, "2.5"))
+			// Verify decimal values are serialized in the canonical Kubernetes form
+			// (1.5 -> 1500m, 2.5 -> 2500m) via resource.Quantity.String().
+			Expect(config).To(HaveKeyWithValue(common.SparkKubernetesExecutorRequestCores, "1500m"))
+			Expect(config).To(HaveKeyWithValue(common.SparkKubernetesExecutorLimitCores, "2500m"))
 		})
 	})
 })

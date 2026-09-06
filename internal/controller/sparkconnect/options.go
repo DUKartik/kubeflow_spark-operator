@@ -229,13 +229,13 @@ func executorConfOption(conn *v1alpha1.SparkConnect) ([]string, error) {
 	// Executor CPU request
 	if conn.Spec.Executor.CoreRequest != nil {
 		args = append(args, "--conf",
-			fmt.Sprintf("%s=%s", common.SparkKubernetesExecutorRequestCores, *conn.Spec.Executor.CoreRequest))
+			fmt.Sprintf("%s=%s", common.SparkKubernetesExecutorRequestCores, conn.Spec.Executor.CoreRequest.String()))
 	}
 
 	// Executor CPU limit
 	if conn.Spec.Executor.CoreLimit != nil {
 		args = append(args, "--conf",
-			fmt.Sprintf("%s=%s", common.SparkKubernetesExecutorLimitCores, *conn.Spec.Executor.CoreLimit))
+			fmt.Sprintf("%s=%s", common.SparkKubernetesExecutorLimitCores, conn.Spec.Executor.CoreLimit.String()))
 	}
 
 	// Use SparkConnect object name as executor pod name prefix.

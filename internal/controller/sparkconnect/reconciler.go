@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -489,25 +488,17 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 // CPU resources must be applied to the pod spec by the operator.
 func setupServerContainerResources(container *corev1.Container, conn *v1alpha1.SparkConnect) error {
 	if conn.Spec.Server.CoreRequest != nil {
-		quantity, err := resource.ParseQuantity(*conn.Spec.Server.CoreRequest)
-		if err != nil {
-			return fmt.Errorf("failed to parse server.coreRequest %q: %v", *conn.Spec.Server.CoreRequest, err)
-		}
 		if container.Resources.Requests == nil {
 			container.Resources.Requests = corev1.ResourceList{}
 		}
-		container.Resources.Requests[corev1.ResourceCPU] = quantity
+		container.Resources.Requests[corev1.ResourceCPU] = *conn.Spec.Server.CoreRequest
 	}
 
 	if conn.Spec.Server.CoreLimit != nil {
-		quantity, err := resource.ParseQuantity(*conn.Spec.Server.CoreLimit)
-		if err != nil {
-			return fmt.Errorf("failed to parse server.coreLimit %q: %v", *conn.Spec.Server.CoreLimit, err)
-		}
 		if container.Resources.Limits == nil {
 			container.Resources.Limits = corev1.ResourceList{}
 		}
-		container.Resources.Limits[corev1.ResourceCPU] = quantity
+		container.Resources.Limits[corev1.ResourceCPU] = *conn.Spec.Server.CoreLimit
 	}
 
 	return nil

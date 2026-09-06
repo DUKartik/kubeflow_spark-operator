@@ -327,7 +327,7 @@ var _ = Describe("setupServerContainerResources", func() {
 	})
 
 	It("sets Requests[corev1.ResourceCPU] when server.coreRequest is specified", func() {
-		coreRequest := "500m"
+		coreRequest := resource.MustParse("500m")
 		conn.Spec.Server.CoreRequest = &coreRequest
 		container := &corev1.Container{}
 
@@ -338,7 +338,7 @@ var _ = Describe("setupServerContainerResources", func() {
 	})
 
 	It("sets Limits[corev1.ResourceCPU] when server.coreLimit is specified", func() {
-		coreLimit := "1"
+		coreLimit := resource.MustParse("1")
 		conn.Spec.Server.CoreLimit = &coreLimit
 		container := &corev1.Container{}
 
@@ -349,8 +349,8 @@ var _ = Describe("setupServerContainerResources", func() {
 	})
 
 	It("sets both request and limit when both are specified", func() {
-		coreRequest := "1.5"
-		coreLimit := "2.5"
+		coreRequest := resource.MustParse("1.5")
+		coreLimit := resource.MustParse("2.5")
 		conn.Spec.Server.CoreRequest = &coreRequest
 		conn.Spec.Server.CoreLimit = &coreLimit
 		container := &corev1.Container{}
@@ -372,7 +372,7 @@ var _ = Describe("setupServerContainerResources", func() {
 
 	It("keeps Cores independent from Kubernetes CPU resources", func() {
 		cores := int32(4)
-		coreRequest := "500m"
+		coreRequest := resource.MustParse("500m")
 		conn.Spec.Server.Cores = &cores
 		conn.Spec.Server.CoreRequest = &coreRequest
 		container := &corev1.Container{}
@@ -385,7 +385,7 @@ var _ = Describe("setupServerContainerResources", func() {
 	})
 
 	It("preserves other resource keys when setting CPU request", func() {
-		coreRequest := "500m"
+		coreRequest := resource.MustParse("500m")
 		conn.Spec.Server.CoreRequest = &coreRequest
 		container := &corev1.Container{
 			Resources: corev1.ResourceRequirements{
@@ -403,15 +403,6 @@ var _ = Describe("setupServerContainerResources", func() {
 		Expect(memValue(container.Resources.Requests[corev1.ResourceMemory])).To(Equal(int64(1) << 30))
 		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
 		Expect(memValue(container.Resources.Limits[corev1.ResourceMemory])).To(Equal(int64(1) << 30))
-	})
-
-	It("returns an error for an invalid coreRequest quantity", func() {
-		coreRequest := "invalid-cpu"
-		conn.Spec.Server.CoreRequest = &coreRequest
-		container := &corev1.Container{}
-
-		err := setupServerContainerResources(container, conn)
-		Expect(err).To(HaveOccurred())
 	})
 })
 
@@ -454,8 +445,8 @@ var _ = Describe("mutateServerPod with CPU resources", func() {
 	})
 
 	It("applies server.coreRequest and server.coreLimit to the server container resources", func() {
-		coreRequest := "500m"
-		coreLimit := "1"
+		coreRequest := resource.MustParse("500m")
+		coreLimit := resource.MustParse("1")
 		conn.Spec.Server.CoreRequest = &coreRequest
 		conn.Spec.Server.CoreLimit = &coreLimit
 		pod := &corev1.Pod{
@@ -490,7 +481,7 @@ var _ = Describe("mutateServerPod with CPU resources", func() {
 	})
 
 	It("overrides template CPU request when server.coreRequest is specified, preserving other template resources", func() {
-		coreRequest := "500m"
+		coreRequest := resource.MustParse("500m")
 		conn.Spec.Server.CoreRequest = &coreRequest
 		conn.Spec.Server.Template = &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{

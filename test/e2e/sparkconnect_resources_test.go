@@ -31,6 +31,7 @@ import (
 
 	"github.com/kubeflow/spark-operator/v2/api/v1alpha1"
 	"github.com/kubeflow/spark-operator/v2/internal/controller/sparkconnect"
+	"github.com/kubeflow/spark-operator/v2/pkg/util"
 )
 
 var _ = Describe("SparkConnect CPU Resources", func() {
@@ -45,11 +46,11 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 		var conn *v1alpha1.SparkConnect
 
 		BeforeEach(func() {
-			image := "apache/spark:4.0.0"
+			image := "docker.io/apache/spark:4.0.4"
 			conn = &v1alpha1.SparkConnect{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "spark-connect-resources",
-					Namespace: "default",
+					GenerateName: "spark-connect-resources-",
+					Namespace:    "default",
 				},
 				Spec: v1alpha1.SparkConnectSpec{
 					Image:        &image,
@@ -57,15 +58,15 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 					Server: v1alpha1.ServerSpec{
 						SparkPodSpec: v1alpha1.SparkPodSpec{
 							Cores:       ptr.To[int32](1),
-							CoreRequest: ptr.To("500m"),
-							CoreLimit:   ptr.To("1"),
+							CoreRequest: ptr.To(resource.MustParse("500m")),
+							CoreLimit:   ptr.To(resource.MustParse("1")),
 						},
 					},
 					Executor: v1alpha1.ExecutorSpec{
 						SparkPodSpec: v1alpha1.SparkPodSpec{
 							Cores:       ptr.To[int32](1),
-							CoreRequest: ptr.To("500m"),
-							CoreLimit:   ptr.To("1500m"),
+							CoreRequest: ptr.To(resource.MustParse("500m")),
+							CoreLimit:   ptr.To(resource.MustParse("1500m")),
 						},
 						Instances: ptr.To[int32](1),
 					},
@@ -86,11 +87,15 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 
 			serverPodName := sparkconnect.GetServerPodName(conn)
 
-			By("Waiting for the server pod to be created by the operator")
+			By("Waiting for the server pod to be ready")
 			serverPod := &corev1.Pod{}
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}, serverPod)
-			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(Succeed())
+			Eventually(func() bool {
+				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}
+				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
+					return false
+				}
+				return util.IsPodReady(serverPod)
+			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue())
 
 			By("Asserting the server container CPU request matches spec.server.coreRequest")
 			cpuReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
@@ -111,11 +116,15 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 
 			serverPodName := sparkconnect.GetServerPodName(conn)
 
-			By("Waiting for the server pod to be created by the operator")
+			By("Waiting for the server pod to be ready")
 			serverPod := &corev1.Pod{}
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}, serverPod)
-			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(Succeed())
+			Eventually(func() bool {
+				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}
+				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
+					return false
+				}
+				return util.IsPodReady(serverPod)
+			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue())
 
 			By("Asserting the server pod args contain the executor CPU conf keys")
 			// The server pod's args string is built from buildStartConnectServerArgs and includes
@@ -144,19 +153,19 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 		var conn *v1alpha1.SparkConnect
 
 		BeforeEach(func() {
-			image := "apache/spark:4.0.0"
+			image := "docker.io/apache/spark:4.0.4"
 			conn = &v1alpha1.SparkConnect{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "spark-connect-precedence",
-					Namespace: "default",
+					GenerateName: "spark-connect-precedence-",
+					Namespace:    "default",
 				},
 				Spec: v1alpha1.SparkConnectSpec{
 					Image:        &image,
 					SparkVersion: "4.0.0",
 					Server: v1alpha1.ServerSpec{
 						SparkPodSpec: v1alpha1.SparkPodSpec{
-							CoreRequest: ptr.To("500m"),
-							CoreLimit:   ptr.To("1"),
+							CoreRequest: ptr.To(resource.MustParse("500m")),
+							CoreLimit:   ptr.To(resource.MustParse("1")),
 							// Template also specifies CPU and memory.
 							Template: &corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
@@ -200,11 +209,15 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 
 			serverPodName := sparkconnect.GetServerPodName(conn)
 
-			By("Waiting for the server pod to be created by the operator")
+			By("Waiting for the server pod to be ready")
 			serverPod := &corev1.Pod{}
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}, serverPod)
-			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(Succeed())
+			Eventually(func() bool {
+				key := types.NamespacedName{Namespace: conn.Namespace, Name: serverPodName}
+				if err := k8sClient.Get(ctx, key, serverPod); err != nil {
+					return false
+				}
+				return util.IsPodReady(serverPod)
+			}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue())
 
 			By("Asserting spec.server.coreRequest wins for the CPU request")
 			cpuReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
