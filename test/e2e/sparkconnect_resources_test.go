@@ -143,11 +143,6 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 	})
 
 	Context("Precedence: spec.server.coreRequest overrides template CPU request", func() {
-		// Tariq asked that the precedence rule be deterministic and explicit.
-		// The operator's contract is: if both spec.server.coreRequest and
-		// spec.server.template.spec.containers[].resources.requests.cpu are
-		// set, spec.server.coreRequest wins for the CPU key. Other resource
-		// keys (memory, ephemeral-storage) on the template are preserved.
 		ctx := context.Background()
 
 		var conn *v1alpha1.SparkConnect

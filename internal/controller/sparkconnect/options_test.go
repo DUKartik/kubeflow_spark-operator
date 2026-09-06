@@ -161,9 +161,6 @@ var _ = Describe("Options functions", func() {
 			// Verify Cores still maps to spark.driver.cores
 			Expect(config).To(HaveKeyWithValue("spark.driver.cores", "4"))
 
-			// The server pod is created by the operator (client mode setup), so server
-			// CoreRequest/CoreLimit must NOT be emitted as driver SparkConf keys. They are
-			// applied directly to the server PodSpec by the operator instead.
 			Expect(config).NotTo(HaveKey(common.SparkKubernetesDriverRequestCores))
 			Expect(config).NotTo(HaveKey(common.SparkKubernetesDriverLimitCores))
 		})
