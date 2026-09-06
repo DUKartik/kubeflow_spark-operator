@@ -143,6 +143,12 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 							// Template also specifies CPU and memory.
 							Template: &corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
+									// The readiness It waits for the Spark Connect server to start, which
+									// requires the pod to launch executor pods. The default service account
+									// in the "default" namespace has no RBAC for that, so we explicitly use
+									// the spark-operator-spark SA installed by config/spark-rbac/ in the e2e
+									// suite. The example YAML does the same.
+									ServiceAccountName: "spark-operator-spark",
 									Containers: []corev1.Container{
 										{
 											Name:  "spark-kubernetes-driver",
