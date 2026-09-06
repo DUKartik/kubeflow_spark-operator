@@ -782,6 +782,36 @@ int32
 </tr>
 <tr>
 <td>
+<code>coreRequest</code><br/>
+<em>
+k8s.io/apimachinery/pkg/api/resource.Quantity
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>CoreRequest is the physical CPU core request for the pod.
+For a SparkConnect server, the operator applies it directly to the operator-created
+server pod&rsquo;s container resources.requests.cpu. For a SparkConnect executor, it is
+passed to Spark as spark.kubernetes.executor.request.cores.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>coreLimit</code><br/>
+<em>
+k8s.io/apimachinery/pkg/api/resource.Quantity
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>CoreLimit is the physical CPU core limit for the pod.
+For a SparkConnect server, the operator applies it directly to the operator-created
+server pod&rsquo;s container resources.limits.cpu. For a SparkConnect executor, it is
+passed to Spark as spark.kubernetes.executor.limit.cores.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>memory</code><br/>
 <em>
 string
