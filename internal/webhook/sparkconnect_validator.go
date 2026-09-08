@@ -395,11 +395,12 @@ func validateCPUQuantity(cpu *resource.Quantity) error {
 	return nil
 }
 
-// validateCPURequestLELimit validates that the parsed CPU request is less than or equal to the
-// parsed CPU limit. Both inputs must already be valid Kubernetes CPU quantities.
+// validateCPURequestLELimit validates that the effective CPU request is less than or equal to
+// the effective CPU limit. The effective values may come from the CRD spec or fall back to the
+// pod template container resources; both inputs must already be valid Kubernetes CPU quantities.
 func validateCPURequestLELimit(request, limit *resource.Quantity) error {
 	if request.Cmp(*limit) > 0 {
-		return fmt.Errorf("coreRequest %q must not be greater than coreLimit %q", request.String(), limit.String())
+		return fmt.Errorf("effective coreRequest %q must not be greater than effective coreLimit %q", request.String(), limit.String())
 	}
 	return nil
 }
