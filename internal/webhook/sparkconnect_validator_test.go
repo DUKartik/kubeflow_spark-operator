@@ -576,6 +576,146 @@ func TestSparkConnectValidatorValidateCreate_ServerCoreRequestExceedsLimit(t *te
 	}
 }
 
+// The request/limit cross-validation must use the effective values: a CRD field wins, and a
+// missing CRD field falls back to the pod template container resources. A request that only
+// exceeds the template's limit (not a CRD limit) must still be rejected.
+func TestSparkConnectValidatorValidateCreate_ServerCoreRequestExceedsTemplateLimit(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Server.CoreRequest = ptr.To(resource.MustParse("2"))
+	sc.Spec.Server.Template = &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  common.SparkDriverContainerName,
+					Image: "spark:3.5.0",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected server coreRequest vs template coreLimit validation error, got %v", err)
+	}
+}
+
+func TestSparkConnectValidatorValidateCreate_ExecutorCoreRequestExceedsTemplateLimit(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Executor.CoreRequest = ptr.To(resource.MustParse("2"))
+	sc.Spec.Executor.Template = &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  common.Spark3DefaultExecutorContainerName,
+					Image: "spark:3.5.0",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected executor coreRequest vs template coreLimit validation error, got %v", err)
+	}
+}
+
+// A CRD limit that is lower than the template's request must also be rejected: the CRD limit
+// wins over the template, so the effective request comes from the template.
+func TestSparkConnectValidatorValidateCreate_ServerCoreLimitBelowTemplateRequest(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Server.CoreLimit = ptr.To(resource.MustParse("1"))
+	sc.Spec.Server.Template = &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  common.SparkDriverContainerName,
+					Image: "spark:3.5.0",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected server template coreRequest vs CRD coreLimit validation error, got %v", err)
+	}
+}
+
+// When both effective values come from the template, the cross-validation still applies.
+func TestSparkConnectValidatorValidateCreate_TemplateRequestExceedsTemplateLimit(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Server.Template = &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  common.SparkDriverContainerName,
+					Image: "spark:3.5.0",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected template-only coreRequest/coreLimit validation error, got %v", err)
+	}
+}
+
+// Missing effective values are skipped, and a valid combination of CRD and template values
+// passes.
+func TestSparkConnectValidatorValidateCreate_ValidEffectiveCPUCombination(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Server.CoreRequest = ptr.To(resource.MustParse("500m"))
+	sc.Spec.Server.Template = &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  common.SparkDriverContainerName,
+					Image: "spark:3.5.0",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err != nil {
+		t.Fatalf("expected success for CRD request below template limit, got %v", err)
+	}
+}
+
 func TestSparkConnectValidatorValidateCreate_ExecutorCoreRequestExceedsLimit(t *testing.T) {
 	validator := newTestSparkConnectValidator(t)
 

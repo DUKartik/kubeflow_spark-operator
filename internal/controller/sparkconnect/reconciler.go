@@ -381,9 +381,7 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 		// The server pod is created by the operator as part of the client mode setup, so
 		// server.coreRequest/server.coreLimit are applied directly to the pod spec instead of
 		// being mapped to spark.kubernetes.driver.{request,limit}.cores Spark configuration.
-		if err := setupServerContainerResources(container, conn); err != nil {
-			return err
-		}
+		setupServerContainerResources(container, conn)
 		// Setup image.
 		if container.Image == "" {
 			if conn.Spec.Image == nil || *conn.Spec.Image == "" {
@@ -486,7 +484,7 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 // The operator creates the server pod directly as part of the client mode setup, so unlike
 // executor pods (which are created by Spark and configured via Spark configuration), the server
 // CPU resources must be applied to the pod spec by the operator.
-func setupServerContainerResources(container *corev1.Container, conn *v1alpha1.SparkConnect) error {
+func setupServerContainerResources(container *corev1.Container, conn *v1alpha1.SparkConnect) {
 	if conn.Spec.Server.CoreRequest != nil {
 		if container.Resources.Requests == nil {
 			container.Resources.Requests = corev1.ResourceList{}
@@ -500,8 +498,6 @@ func setupServerContainerResources(container *corev1.Container, conn *v1alpha1.S
 		}
 		container.Resources.Limits[corev1.ResourceCPU] = *conn.Spec.Server.CoreLimit
 	}
-
-	return nil
 }
 
 func setDefaultSparkConnectServerProbes(container *corev1.Container) {

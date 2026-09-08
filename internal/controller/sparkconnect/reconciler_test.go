@@ -331,8 +331,7 @@ var _ = Describe("setupServerContainerResources", func() {
 		conn.Spec.Server.CoreRequest = &coreRequest
 		container := &corev1.Container{}
 
-		err := setupServerContainerResources(container, conn)
-		Expect(err).NotTo(HaveOccurred())
+		setupServerContainerResources(container, conn)
 		Expect(container.Resources.Requests).To(HaveKey(corev1.ResourceCPU))
 		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
 	})
@@ -342,8 +341,7 @@ var _ = Describe("setupServerContainerResources", func() {
 		conn.Spec.Server.CoreLimit = &coreLimit
 		container := &corev1.Container{}
 
-		err := setupServerContainerResources(container, conn)
-		Expect(err).NotTo(HaveOccurred())
+		setupServerContainerResources(container, conn)
 		Expect(container.Resources.Limits).To(HaveKey(corev1.ResourceCPU))
 		Expect(cpuMilliValue(container.Resources.Limits[corev1.ResourceCPU])).To(Equal(int64(1000)))
 	})
@@ -355,8 +353,7 @@ var _ = Describe("setupServerContainerResources", func() {
 		conn.Spec.Server.CoreLimit = &coreLimit
 		container := &corev1.Container{}
 
-		err := setupServerContainerResources(container, conn)
-		Expect(err).NotTo(HaveOccurred())
+		setupServerContainerResources(container, conn)
 		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(1500)))
 		Expect(cpuMilliValue(container.Resources.Limits[corev1.ResourceCPU])).To(Equal(int64(2500)))
 	})
@@ -364,8 +361,7 @@ var _ = Describe("setupServerContainerResources", func() {
 	It("does not create CPU resources when neither is specified", func() {
 		container := &corev1.Container{}
 
-		err := setupServerContainerResources(container, conn)
-		Expect(err).NotTo(HaveOccurred())
+		setupServerContainerResources(container, conn)
 		Expect(container.Resources.Requests).To(BeEmpty())
 		Expect(container.Resources.Limits).To(BeEmpty())
 	})
@@ -377,8 +373,7 @@ var _ = Describe("setupServerContainerResources", func() {
 		conn.Spec.Server.CoreRequest = &coreRequest
 		container := &corev1.Container{}
 
-		err := setupServerContainerResources(container, conn)
-		Expect(err).NotTo(HaveOccurred())
+		setupServerContainerResources(container, conn)
 		// Cores is the task-slot count (spark.driver.cores) and must not influence the pod resource quantity.
 		Expect(conn.Spec.Server.Cores).NotTo(BeNil())
 		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
@@ -398,8 +393,7 @@ var _ = Describe("setupServerContainerResources", func() {
 			},
 		}
 
-		err := setupServerContainerResources(container, conn)
-		Expect(err).NotTo(HaveOccurred())
+		setupServerContainerResources(container, conn)
 		Expect(memValue(container.Resources.Requests[corev1.ResourceMemory])).To(Equal(int64(1) << 30))
 		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
 		Expect(memValue(container.Resources.Limits[corev1.ResourceMemory])).To(Equal(int64(1) << 30))
