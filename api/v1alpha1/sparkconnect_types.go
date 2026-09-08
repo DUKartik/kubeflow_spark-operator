@@ -116,7 +116,7 @@ type SparkPodSpec struct {
 	// +optional
 	CoreRequest *resource.Quantity `json:"coreRequest,omitempty"`
 
-	// CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.
+	// CoreLimit is the physical CPU core limit for the pod.
 	// +optional
 	CoreLimit *resource.Quantity `json:"coreLimit,omitempty"`
 
