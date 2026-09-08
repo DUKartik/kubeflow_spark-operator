@@ -112,7 +112,7 @@ type SparkPodSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Cores *int32 `json:"cores,omitempty"`
 
-	// CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.
+	// CoreRequest is the physical CPU core request for the pod.
 	// +optional
 	CoreRequest *resource.Quantity `json:"coreRequest,omitempty"`
 
