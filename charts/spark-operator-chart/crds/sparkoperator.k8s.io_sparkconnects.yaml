@@ -99,9 +99,7 @@ spec:
                     - type: integer
                     - type: string
                     description: CoreLimit is the physical CPU core limit for the
-                      pod, applied to the container's resources.limits.cpu for the
-                      server pod or passed to Spark as spark.kubernetes.executor.limit.cores
-                      for executors.
+                      pod.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   coreRequest:
@@ -109,9 +107,7 @@ spec:
                     - type: integer
                     - type: string
                     description: CoreRequest is the physical CPU core request for
-                      the pod, applied to the container's resources.requests.cpu for
-                      the server pod or passed to Spark as spark.kubernetes.executor.request.cores
-                      for executors.
+                      the pod.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   cores:
@@ -158,9 +154,7 @@ spec:
                     - type: integer
                     - type: string
                     description: CoreLimit is the physical CPU core limit for the
-                      pod, applied to the container's resources.limits.cpu for the
-                      server pod or passed to Spark as spark.kubernetes.executor.limit.cores
-                      for executors.
+                      pod.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   coreRequest:
@@ -168,9 +162,7 @@ spec:
                     - type: integer
                     - type: string
                     description: CoreRequest is the physical CPU core request for
-                      the pod, applied to the container's resources.requests.cpu for
-                      the server pod or passed to Spark as spark.kubernetes.executor.request.cores
-                      for executors.
+                      the pod.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   cores:

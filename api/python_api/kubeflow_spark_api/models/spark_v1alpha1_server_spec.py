@@ -29,8 +29,8 @@ class SparkV1alpha1ServerSpec(BaseModel):
     """
     ServerSpec is specification of the Spark connect server.
     """ # noqa: E501
-    core_limit: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.", alias="coreLimit")
-    core_request: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.", alias="coreRequest")
+    core_limit: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreLimit is the physical CPU core limit for the pod.", alias="coreLimit")
+    core_request: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreRequest is the physical CPU core request for the pod.", alias="coreRequest")
     cores: Optional[StrictInt] = Field(default=None, description="Cores maps to `spark.driver.cores` or `spark.executor.cores` for the driver and executors, respectively.")
     memory: Optional[StrictStr] = Field(default=None, description="Memory is the amount of memory to request for the pod.")
     service: Optional[IoK8sApiCoreV1Service] = Field(default=None, description="Service exposes the Spark connect server.")

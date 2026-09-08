@@ -789,7 +789,7 @@ k8s.io/apimachinery/pkg/api/resource.Quantity
 </td>
 <td>
 <em>(Optional)</em>
-<p>CoreRequest is the physical CPU core request for the pod, applied to the container&rsquo;s resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.</p>
+<p>CoreRequest is the physical CPU core request for the pod.</p>
 </td>
 </tr>
 <tr>
@@ -801,7 +801,7 @@ k8s.io/apimachinery/pkg/api/resource.Quantity
 </td>
 <td>
 <em>(Optional)</em>
-<p>CoreLimit is the physical CPU core limit for the pod, applied to the container&rsquo;s resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.</p>
+<p>CoreLimit is the physical CPU core limit for the pod.</p>
 </td>
 </tr>
 <tr>

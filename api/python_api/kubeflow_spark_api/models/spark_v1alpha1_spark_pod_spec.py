@@ -28,8 +28,8 @@ class SparkV1alpha1SparkPodSpec(BaseModel):
     """
     SparkPodSpec defines common things that can be customized for a Spark driver or executor pod.
     """ # noqa: E501
-    core_limit: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreLimit is the physical CPU core limit for the pod, applied to the container's resources.limits.cpu for the server pod or passed to Spark as spark.kubernetes.executor.limit.cores for executors.", alias="coreLimit")
-    core_request: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreRequest is the physical CPU core request for the pod, applied to the container's resources.requests.cpu for the server pod or passed to Spark as spark.kubernetes.executor.request.cores for executors.", alias="coreRequest")
+    core_limit: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreLimit is the physical CPU core limit for the pod.", alias="coreLimit")
+    core_request: Optional[IoK8sApimachineryPkgApiResourceQuantity] = Field(default=None, description="CoreRequest is the physical CPU core request for the pod.", alias="coreRequest")
     cores: Optional[StrictInt] = Field(default=None, description="Cores maps to `spark.driver.cores` or `spark.executor.cores` for the driver and executors, respectively.")
     memory: Optional[StrictStr] = Field(default=None, description="Memory is the amount of memory to request for the pod.")
     template: Optional[IoK8sApiCoreV1PodTemplateSpec] = Field(default=None, description="Template is a pod template that can be used to define the driver or executor pod configurations that Spark configurations do not support. Spark version >= 3.0.0 is required. Ref: https://spark.apache.org/docs/latest/running-on-kubernetes.html#pod-template.")
