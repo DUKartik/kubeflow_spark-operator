@@ -747,8 +747,338 @@ func TestSparkConnectValidatorValidateCreate_ExecutorNegativeCoreLimit(t *testin
 	neg := resource.NewMilliQuantity(-500, resource.DecimalSI)
 	sc.Spec.Executor.CoreLimit = neg
 
-	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "must not be negative") {
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "greater than zero") {
 		t.Fatalf("expected negative coreLimit validation error, got %v", err)
+	}
+}
+
+// effectiveExecutorCPUResources must model what Spark actually applies to the executor container,
+// which is not the same rule as the operator-created server pod.
+//
+// Spark overwrites the executor container's CPU request unconditionally, so a request set on the
+// executor pod template is never honoured. The CPU limit is only set when limit.cores is
+// configured, so the template's limit survives when the conf is unset.
+func TestEffectiveExecutorCPUResources_Request(t *testing.T) {
+	testCases := []struct {
+		name           string
+		coreRequest    *resource.Quantity
+		cores          *int32
+		sparkConf      map[string]string
+		templateCPUReq string
+		wantRequest    string
+	}{
+		{
+			name:        "CRD coreRequest wins over every fallback",
+			coreRequest: ptr.To(resource.MustParse("500m")),
+			cores:       ptr.To[int32](4),
+			sparkConf: map[string]string{
+				common.SparkKubernetesExecutorRequestCores: "2",
+				common.SparkExecutorCores:                  "3",
+			},
+			templateCPUReq: "3",
+			wantRequest:    "500m",
+		},
+		{
+			name:  "sparkConf request.cores wins over cores and spark.executor.cores",
+			cores: ptr.To[int32](4),
+			sparkConf: map[string]string{
+				common.SparkKubernetesExecutorRequestCores: "2",
+				common.SparkExecutorCores:                  "3",
+			},
+			templateCPUReq: "3",
+			wantRequest:    "2",
+		},
+		{
+			name:  "CRD executor.cores wins over sparkConf spark.executor.cores",
+			cores: ptr.To[int32](4),
+			sparkConf: map[string]string{
+				common.SparkExecutorCores: "3",
+			},
+			templateCPUReq: "3",
+			wantRequest:    "4",
+		},
+		{
+			name: "sparkConf spark.executor.cores is used when the CRD field is unset",
+			sparkConf: map[string]string{
+				common.SparkExecutorCores: "3",
+			},
+			templateCPUReq: "3",
+			wantRequest:    "3",
+		},
+		{
+			name:           "template request is ignored and the request defaults to one core",
+			templateCPUReq: "3",
+			wantRequest:    "1",
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := newSparkConnect()
+			sc.Spec.Executor.CoreRequest = tt.coreRequest
+			sc.Spec.Executor.Cores = tt.cores
+			sc.Spec.SparkConf = tt.sparkConf
+			if tt.templateCPUReq != "" {
+				sc.Spec.Executor.Template = executorTemplateWithCPU(tt.templateCPUReq, "")
+			}
+
+			request, _ := effectiveExecutorCPUResources(sc)
+			if request == nil {
+				t.Fatalf("expected an effective request, got nil")
+			}
+			if want := resource.MustParse(tt.wantRequest); !request.Equal(want) {
+				t.Fatalf("expected effective request %s, got %s", tt.wantRequest, request.String())
+			}
+		})
+	}
+}
+
+// Unlike the request, the executor template's CPU limit IS honoured when limit.cores is unset.
+func TestEffectiveExecutorCPUResources_Limit(t *testing.T) {
+	testCases := []struct {
+		name           string
+		coreLimit      *resource.Quantity
+		sparkConf      map[string]string
+		templateCPULim string
+		wantLimit      string
+	}{
+		{
+			name:      "CRD coreLimit wins over every fallback",
+			coreLimit: ptr.To(resource.MustParse("1500m")),
+			sparkConf: map[string]string{
+				common.SparkKubernetesExecutorLimitCores: "2",
+			},
+			templateCPULim: "3",
+			wantLimit:      "1500m",
+		},
+		{
+			name: "sparkConf limit.cores wins over the template limit",
+			sparkConf: map[string]string{
+				common.SparkKubernetesExecutorLimitCores: "2",
+			},
+			templateCPULim: "3",
+			wantLimit:      "2",
+		},
+		{
+			name:           "template limit is honoured when limit.cores is unset",
+			templateCPULim: "3",
+			wantLimit:      "3",
+		},
+		{
+			name:      "no effective limit when nothing sets one",
+			wantLimit: "",
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := newSparkConnect()
+			sc.Spec.Executor.CoreLimit = tt.coreLimit
+			sc.Spec.SparkConf = tt.sparkConf
+			if tt.templateCPULim != "" {
+				sc.Spec.Executor.Template = executorTemplateWithCPU("", tt.templateCPULim)
+			}
+
+			_, limit := effectiveExecutorCPUResources(sc)
+			if tt.wantLimit == "" {
+				if limit != nil {
+					t.Fatalf("expected no effective limit, got %s", limit.String())
+				}
+				return
+			}
+			if limit == nil {
+				t.Fatalf("expected an effective limit of %s, got nil", tt.wantLimit)
+			}
+			if want := resource.MustParse(tt.wantLimit); !limit.Equal(want) {
+				t.Fatalf("expected effective limit %s, got %s", tt.wantLimit, limit.String())
+			}
+		})
+	}
+}
+
+// A sparkConf limit lower than the CRD coreRequest must not pass validation. This is the case the
+// reviewer called out: the executor CPU limit is derivable from sparkConf, so it has to take part
+// in the cross-validation.
+func TestSparkConnectValidatorValidateCreate_SparkConfLimitCoresBelowCoreRequest(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Executor.CoreRequest = ptr.To(resource.MustParse("2"))
+	sc.Spec.SparkConf = map[string]string{
+		common.SparkKubernetesExecutorLimitCores: "1",
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected executor CPU request/limit validation error, got %v", err)
+	}
+}
+
+// The mirror case: a sparkConf request higher than the CRD coreLimit.
+func TestSparkConnectValidatorValidateCreate_SparkConfRequestCoresAboveCoreLimit(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Executor.CoreLimit = ptr.To(resource.MustParse("1"))
+	sc.Spec.SparkConf = map[string]string{
+		common.SparkKubernetesExecutorRequestCores: "2",
+	}
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected executor CPU request/limit validation error, got %v", err)
+	}
+}
+
+// Spark always sets an executor CPU request, so a limit below the implied single core cannot be
+// satisfied even though no request field is set on the spec.
+func TestSparkConnectValidatorValidateCreate_ExecutorCoreLimitBelowDefaultRequest(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Executor.Cores = nil
+	sc.Spec.Executor.CoreLimit = ptr.To(resource.MustParse("500m"))
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err == nil || !strings.Contains(err.Error(), "coreRequest") {
+		t.Fatalf("expected executor CPU request/limit validation error, got %v", err)
+	}
+}
+
+// A CPU request on the executor pod template is overwritten by Spark, so it must not be treated as
+// the effective request. Here the template asks for 2 cores while the CRD limit is 1: the effective
+// request is executor.cores (1), so this is valid and must not be rejected.
+func TestSparkConnectValidatorValidateCreate_ExecutorTemplateRequestIgnored(t *testing.T) {
+	validator := newTestSparkConnectValidator(t)
+
+	sc := newSparkConnect()
+	sc.Spec.Executor.CoreLimit = ptr.To(resource.MustParse("1"))
+	sc.Spec.Executor.Template = executorTemplateWithCPU("2", "")
+
+	if _, err := validator.ValidateCreate(context.Background(), sc); err != nil {
+		t.Fatalf("expected success: the template CPU request is overwritten by Spark, got %v", err)
+	}
+}
+
+// A sparkConf CPU value that is unparseable, zero, or negative would make the effective CPU
+// computation above meaningless, so it must be rejected with the offending key and value named.
+func TestSparkConnectValidatorValidateCreate_InvalidSparkConfCPUKeys(t *testing.T) {
+	testCases := []struct {
+		name      string
+		key       string
+		value     string
+		wantError bool
+	}{
+		{name: "valid millicores", key: common.SparkKubernetesExecutorRequestCores, value: "500m"},
+		{name: "valid integer", key: common.SparkExecutorCores, value: "2"},
+		{name: "unparseable", key: common.SparkKubernetesExecutorLimitCores, value: "nonsense", wantError: true},
+		{name: "negative", key: common.SparkKubernetesExecutorLimitCores, value: "-1", wantError: true},
+		{name: "zero", key: common.SparkKubernetesExecutorRequestCores, value: "0", wantError: true},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := newTestSparkConnectValidator(t)
+
+			sc := newSparkConnect()
+			sc.Spec.SparkConf = map[string]string{tt.key: tt.value}
+
+			_, err := validator.ValidateCreate(context.Background(), sc)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("ValidateCreate() with sparkConf %s=%q wantErr=%v, got err=%v", tt.key, tt.value, tt.wantError, err)
+			}
+			if tt.wantError && !strings.Contains(err.Error(), tt.key) {
+				t.Fatalf("expected the error to name %s, got %v", tt.key, err)
+			}
+		})
+	}
+}
+
+// Setting both a CRD field and its equivalent sparkConf key is permitted -- the CRD field wins at
+// runtime, so the duplication is not an error. The sparkConf value is still validated, because it
+// is inert only while the CRD field is set: drop that field later and an unparseable value becomes
+// the effective one, failing at executor-pod creation instead of at admission. This pins the
+// decision recorded on validateSparkConfCPUKeys.
+func TestSparkConnectValidatorValidateCreate_DuplicateSparkConfCPUKeyStillValidated(t *testing.T) {
+	testCases := []struct {
+		name      string
+		mutate    func(sc *v1alpha1.SparkConnect)
+		wantError bool
+	}{
+		{
+			name: "garbage request.cores behind a CRD coreRequest is still rejected",
+			mutate: func(sc *v1alpha1.SparkConnect) {
+				sc.Spec.Executor.CoreRequest = ptr.To(resource.MustParse("2"))
+				sc.Spec.SparkConf = map[string]string{
+					common.SparkKubernetesExecutorRequestCores: "garbage",
+				}
+			},
+			wantError: true,
+		},
+		{
+			name: "garbage limit.cores behind a CRD coreLimit is still rejected",
+			mutate: func(sc *v1alpha1.SparkConnect) {
+				sc.Spec.Executor.CoreLimit = ptr.To(resource.MustParse("1"))
+				sc.Spec.SparkConf = map[string]string{
+					common.SparkKubernetesExecutorLimitCores: "garbage",
+				}
+			},
+			wantError: true,
+		},
+		{
+			name: "garbage spark.executor.cores behind a CRD executor.cores is still rejected",
+			mutate: func(sc *v1alpha1.SparkConnect) {
+				sc.Spec.Executor.Cores = ptr.To[int32](4)
+				sc.Spec.SparkConf = map[string]string{
+					common.SparkExecutorCores: "garbage",
+				}
+			},
+			wantError: true,
+		},
+		{
+			name: "a well-formed duplicate is accepted, the CRD field winning",
+			mutate: func(sc *v1alpha1.SparkConnect) {
+				sc.Spec.Executor.CoreRequest = ptr.To(resource.MustParse("2"))
+				sc.Spec.SparkConf = map[string]string{
+					common.SparkKubernetesExecutorRequestCores: "1",
+				}
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := newTestSparkConnectValidator(t)
+
+			sc := newSparkConnect()
+			tt.mutate(sc)
+
+			_, err := validator.ValidateCreate(context.Background(), sc)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("ValidateCreate() wantErr=%v, got err=%v", tt.wantError, err)
+			}
+		})
+	}
+}
+
+// executorTemplateWithCPU builds an executor pod template whose container sets the given CPU
+// request and/or limit. An empty string leaves the corresponding value unset.
+func executorTemplateWithCPU(cpuRequest, cpuLimit string) *corev1.PodTemplateSpec {
+	resources := corev1.ResourceRequirements{}
+	if cpuRequest != "" {
+		resources.Requests = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpuRequest)}
+	}
+	if cpuLimit != "" {
+		resources.Limits = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpuLimit)}
+	}
+
+	return &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:      common.Spark3DefaultExecutorContainerName,
+					Image:     "spark:3.5.0",
+					Resources: resources,
+				},
+			},
+		},
 	}
 }
 
