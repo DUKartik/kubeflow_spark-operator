@@ -382,6 +382,7 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 		// server.coreRequest/server.coreLimit are applied directly to the pod spec instead of
 		// being mapped to spark.kubernetes.driver.{request,limit}.cores Spark configuration.
 		setupServerContainerResources(container, conn)
+
 		// Setup image.
 		if container.Image == "" {
 			if conn.Spec.Image == nil || *conn.Spec.Image == "" {
