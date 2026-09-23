@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -308,98 +309,6 @@ var _ = Describe("mutateServerPod", func() {
 	})
 })
 
-var _ = Describe("setupServerContainerResources", func() {
-	var (
-		conn *v1alpha1.SparkConnect
-	)
-
-	BeforeEach(func() {
-		conn = &v1alpha1.SparkConnect{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-spark-connect",
-				Namespace: "test-namespace",
-			},
-			Spec: v1alpha1.SparkConnectSpec{
-				Server:   v1alpha1.ServerSpec{},
-				Executor: v1alpha1.ExecutorSpec{},
-			},
-		}
-	})
-
-	It("sets Requests[corev1.ResourceCPU] when server.coreRequest is specified", func() {
-		coreRequest := resource.MustParse("500m")
-		conn.Spec.Server.CoreRequest = &coreRequest
-		container := &corev1.Container{}
-
-		setupServerContainerResources(container, conn)
-		Expect(container.Resources.Requests).To(HaveKey(corev1.ResourceCPU))
-		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
-	})
-
-	It("sets Limits[corev1.ResourceCPU] when server.coreLimit is specified", func() {
-		coreLimit := resource.MustParse("1")
-		conn.Spec.Server.CoreLimit = &coreLimit
-		container := &corev1.Container{}
-
-		setupServerContainerResources(container, conn)
-		Expect(container.Resources.Limits).To(HaveKey(corev1.ResourceCPU))
-		Expect(cpuMilliValue(container.Resources.Limits[corev1.ResourceCPU])).To(Equal(int64(1000)))
-	})
-
-	It("sets both request and limit when both are specified", func() {
-		coreRequest := resource.MustParse("1.5")
-		coreLimit := resource.MustParse("2.5")
-		conn.Spec.Server.CoreRequest = &coreRequest
-		conn.Spec.Server.CoreLimit = &coreLimit
-		container := &corev1.Container{}
-
-		setupServerContainerResources(container, conn)
-		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(1500)))
-		Expect(cpuMilliValue(container.Resources.Limits[corev1.ResourceCPU])).To(Equal(int64(2500)))
-	})
-
-	It("does not create CPU resources when neither is specified", func() {
-		container := &corev1.Container{}
-
-		setupServerContainerResources(container, conn)
-		Expect(container.Resources.Requests).To(BeEmpty())
-		Expect(container.Resources.Limits).To(BeEmpty())
-	})
-
-	It("keeps Cores independent from Kubernetes CPU resources", func() {
-		cores := int32(4)
-		coreRequest := resource.MustParse("500m")
-		conn.Spec.Server.Cores = &cores
-		conn.Spec.Server.CoreRequest = &coreRequest
-		container := &corev1.Container{}
-
-		setupServerContainerResources(container, conn)
-		// Cores is the task-slot count (spark.driver.cores) and must not influence the pod resource quantity.
-		Expect(conn.Spec.Server.Cores).NotTo(BeNil())
-		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
-	})
-
-	It("preserves other resource keys when setting CPU request", func() {
-		coreRequest := resource.MustParse("500m")
-		conn.Spec.Server.CoreRequest = &coreRequest
-		container := &corev1.Container{
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-				Limits: corev1.ResourceList{
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				},
-			},
-		}
-
-		setupServerContainerResources(container, conn)
-		Expect(memValue(container.Resources.Requests[corev1.ResourceMemory])).To(Equal(int64(1) << 30))
-		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
-		Expect(memValue(container.Resources.Limits[corev1.ResourceMemory])).To(Equal(int64(1) << 30))
-	})
-})
-
 var _ = Describe("mutateServerPod with CPU resources", func() {
 	var (
 		reconciler *Reconciler
@@ -542,6 +451,65 @@ var _ = Describe("mutateServerPod with CPU resources", func() {
 
 		container := pod.Spec.Containers[0]
 		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(2000)))
+	})
+
+	It("keeps spec.server.cores independent from the Kubernetes CPU resources", func() {
+		cores := int32(4)
+		coreRequest := resource.MustParse("500m")
+		conn.Spec.Server.Cores = &cores
+		conn.Spec.Server.CoreRequest = &coreRequest
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: conn.Namespace,
+			},
+		}
+
+		err := reconciler.mutateServerPod(context.TODO(), conn, pod)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Cores is the task-slot count (spark.driver.cores) and must not influence the pod
+		// resource quantity.
+		container := pod.Spec.Containers[0]
+		Expect(cpuMilliValue(container.Resources.Requests[corev1.ResourceCPU])).To(Equal(int64(500)))
+	})
+
+	It("does not mutate the server pod template", func() {
+		coreRequest := resource.MustParse("500m")
+		conn.Spec.Server.CoreRequest = &coreRequest
+		conn.Spec.Server.Template = &corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{"template-label": "template-value"},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: common.SparkDriverContainerName,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		}
+		original := conn.Spec.Server.Template.DeepCopy()
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: conn.Namespace,
+			},
+		}
+
+		err := reconciler.mutateServerPod(context.TODO(), conn, pod)
+		Expect(err).NotTo(HaveOccurred())
+
+		// The template must be left exactly as it was: mutateServerPod mutates the pod it is
+		// given, and both the label map and the container slice are shared unless they are
+		// copied onto the pod first.
+		Expect(conn.Spec.Server.Template.Spec.Containers[0].Image).To(BeEmpty())
+		Expect(conn.Spec.Server.Template.Labels).NotTo(HaveKey(common.LabelSparkVersion))
+		Expect(apiequality.Semantic.DeepEqual(original, conn.Spec.Server.Template)).To(BeTrue(),
+			"mutateServerPod must not mutate the SparkConnect's pod template")
 	})
 })
 

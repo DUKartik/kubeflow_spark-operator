@@ -21,6 +21,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 var _ = Describe("GetContainerByNameOrFirst", func() {
@@ -66,5 +67,81 @@ var _ = Describe("GetContainerByNameOrFirst", func() {
 		container.Image = "updated-image"
 
 		Expect(containers[1].Image).To(Equal("updated-image"))
+	})
+})
+
+var _ = Describe("SetContainerCPUResources", func() {
+	var (
+		container *corev1.Container
+	)
+
+	BeforeEach(func() {
+		container = &corev1.Container{}
+	})
+
+	It("sets the CPU request when only a request is given", func() {
+		request := resource.MustParse("500m")
+
+		returned := util.SetContainerCPUResources(container, &request, nil)
+
+		Expect(returned.Resources.Requests).To(HaveKey(corev1.ResourceCPU))
+		Expect(returned.Resources.Requests.Cpu().MilliValue()).To(Equal(int64(500)))
+		Expect(returned.Resources.Limits).To(BeNil())
+	})
+
+	It("sets the CPU limit when only a limit is given", func() {
+		limit := resource.MustParse("1")
+
+		returned := util.SetContainerCPUResources(container, nil, &limit)
+
+		Expect(returned.Resources.Limits).To(HaveKey(corev1.ResourceCPU))
+		Expect(returned.Resources.Limits.Cpu().MilliValue()).To(Equal(int64(1000)))
+		Expect(returned.Resources.Requests).To(BeNil())
+	})
+
+	It("sets both the CPU request and limit when both are given", func() {
+		request := resource.MustParse("1.5")
+		limit := resource.MustParse("2.5")
+
+		returned := util.SetContainerCPUResources(container, &request, &limit)
+
+		Expect(returned.Resources.Requests.Cpu().MilliValue()).To(Equal(int64(1500)))
+		Expect(returned.Resources.Limits.Cpu().MilliValue()).To(Equal(int64(2500)))
+	})
+
+	It("creates no resource maps when both are nil", func() {
+		returned := util.SetContainerCPUResources(container, nil, nil)
+
+		Expect(returned.Resources.Requests).To(BeNil())
+		Expect(returned.Resources.Limits).To(BeNil())
+	})
+
+	It("preserves other resource keys", func() {
+		container = &corev1.Container{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+			},
+		}
+		request := resource.MustParse("500m")
+
+		returned := util.SetContainerCPUResources(container, &request, nil)
+
+		Expect(returned.Resources.Requests).To(HaveKey(corev1.ResourceMemory))
+		Expect(returned.Resources.Requests.Memory().Value()).To(Equal(int64(1) << 30))
+		Expect(returned.Resources.Requests.Cpu().MilliValue()).To(Equal(int64(500)))
+		Expect(returned.Resources.Limits.Memory().Value()).To(Equal(int64(1) << 30))
+	})
+
+	It("returns the container it was given", func() {
+		request := resource.MustParse("500m")
+
+		returned := util.SetContainerCPUResources(container, &request, nil)
+
+		Expect(returned).To(BeIdenticalTo(container))
 	})
 })

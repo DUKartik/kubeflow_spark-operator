@@ -19,6 +19,7 @@ package sparkconnect
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -351,9 +352,11 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 	if pod.CreationTimestamp.IsZero() {
 		template := conn.Spec.Server.Template
 		if template != nil {
-			pod.Labels = template.Labels
-			pod.Annotations = template.Annotations
-			pod.Spec = template.Spec
+			// Deep copy the template fields onto the pod. The pod is mutated below, so assigning
+			// the maps and spec directly would write those mutations back into the template.
+			pod.Labels = maps.Clone(template.Labels)
+			pod.Annotations = maps.Clone(template.Annotations)
+			template.Spec.DeepCopyInto(&pod.Spec)
 		}
 
 		// Fall back to the operator-level default service account. This must happen after the
@@ -381,7 +384,11 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 		// The server pod is created by the operator as part of the client mode setup, so
 		// server.coreRequest/server.coreLimit are applied directly to the pod spec instead of
 		// being mapped to spark.kubernetes.driver.{request,limit}.cores Spark configuration.
-		setupServerContainerResources(container, conn)
+		container = util.SetContainerCPUResources(
+			container,
+			conn.Spec.Server.CoreRequest,
+			conn.Spec.Server.CoreLimit,
+		)
 
 		// Setup image.
 		if container.Image == "" {
@@ -477,28 +484,6 @@ func (r *Reconciler) mutateServerPod(ctx context.Context, conn *v1alpha1.SparkCo
 	pod.Labels[common.LabelSparkVersion] = conn.Spec.SparkVersion
 
 	return nil
-}
-
-// setupServerContainerResources sets the Kubernetes CPU resource request/limit on the
-// Spark Connect server container.
-//
-// The operator creates the server pod directly as part of the client mode setup, so unlike
-// executor pods (which are created by Spark and configured via Spark configuration), the server
-// CPU resources must be applied to the pod spec by the operator.
-func setupServerContainerResources(container *corev1.Container, conn *v1alpha1.SparkConnect) {
-	if conn.Spec.Server.CoreRequest != nil {
-		if container.Resources.Requests == nil {
-			container.Resources.Requests = corev1.ResourceList{}
-		}
-		container.Resources.Requests[corev1.ResourceCPU] = *conn.Spec.Server.CoreRequest
-	}
-
-	if conn.Spec.Server.CoreLimit != nil {
-		if container.Resources.Limits == nil {
-			container.Resources.Limits = corev1.ResourceList{}
-		}
-		container.Resources.Limits[corev1.ResourceCPU] = *conn.Spec.Server.CoreLimit
-	}
 }
 
 func setDefaultSparkConnectServerProbes(container *corev1.Container) {
