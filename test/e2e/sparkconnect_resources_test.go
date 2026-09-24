@@ -28,9 +28,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubeflow/spark-operator/v2/api/v1alpha1"
 	"github.com/kubeflow/spark-operator/v2/internal/controller/sparkconnect"
+	"github.com/kubeflow/spark-operator/v2/pkg/common"
 	"github.com/kubeflow/spark-operator/v2/pkg/util"
 )
 
@@ -45,7 +47,12 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 	// server pod to be created — its assertions only depend on fields the
 	// operator writes at pod-creation time, and waiting on readiness would
 	// add JVM startup per spec for no extra coverage. The "Precedence"
-	// Context adds a separate It that does exercise readiness end-to-end.
+	// Context adds separate Its that do exercise readiness end-to-end and
+	// inspect a real executor pod. The executor assertions belong there
+	// because Spark, not the operator, creates executor pods, and those are
+	// created by the server pod's service account: the namespace's default
+	// service account has no RBAC to create them, so that Context sets
+	// spark-operator-spark explicitly.
 	Context("Apply server CoreRequest/CoreLimit to the server pod", func() {
 		ctx := context.Background()
 
@@ -95,22 +102,26 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 			serverPod := waitForServerPod(ctx, conn)
 
 			By("Asserting the server container CPU request matches spec.server.coreRequest")
-			cpuReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			serverContainer := containerByName(serverPod, common.SparkDriverContainerName)
+			cpuReq, ok := serverContainer.Resources.Requests[corev1.ResourceCPU]
 			Expect(ok).To(BeTrue(), "server pod should have a CPU request set")
 			Expect(cpuReq.Equal(resource.MustParse("500m"))).To(BeTrue(),
 				"expected server CPU request 500m, got %s", cpuReq.String())
 
 			By("Asserting the server container CPU limit matches spec.server.coreLimit")
-			cpuLim, ok := serverPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+			cpuLim, ok := serverContainer.Resources.Limits[corev1.ResourceCPU]
 			Expect(ok).To(BeTrue(), "server pod should have a CPU limit set")
 			Expect(cpuLim.Equal(resource.MustParse("1"))).To(BeTrue(),
 				"expected server CPU limit 1, got %s", cpuLim.String())
 
 			By("Asserting the server pod args contain the executor CPU conf keys")
+			// These stay alongside the executor-pod assertions in the Precedence Context
+			// below: they guard what the operator emits, which is a different failure from
+			// Spark not honouring it.
 			// The server pod's args string is built from buildStartConnectServerArgs and includes
 			// --conf spark.kubernetes.executor.request.cores=... and --conf spark.kubernetes.executor.limit.cores=...
 			// generated from executor.coreRequest / executor.coreLimit.
-			args := serverPod.Spec.Containers[0].Args
+			args := serverContainer.Args
 			Expect(args).NotTo(BeEmpty(), "server pod args should be set by the operator")
 			allArgs := strings.Join(args, " ")
 
@@ -121,7 +132,7 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 		})
 	})
 
-	Context("Precedence: spec.server.coreRequest overrides template CPU request", func() {
+	Context("Precedence: CRD CPU fields override the pod templates", func() {
 		ctx := context.Background()
 
 		var conn *v1alpha1.SparkConnect
@@ -151,7 +162,7 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 									ServiceAccountName: "spark-operator-spark",
 									Containers: []corev1.Container{
 										{
-											Name:  "spark-kubernetes-driver",
+											Name:  common.SparkDriverContainerName,
 											Image: image,
 											Resources: corev1.ResourceRequirements{
 												Requests: corev1.ResourceList{
@@ -171,6 +182,35 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 					},
 					Executor: v1alpha1.ExecutorSpec{
 						Instances: ptr.To[int32](1),
+						SparkPodSpec: v1alpha1.SparkPodSpec{
+							CoreRequest: ptr.To(resource.MustParse("500m")),
+							CoreLimit:   ptr.To(resource.MustParse("1500m")),
+							// The template also specifies CPU, which Spark ignores for the request
+							// and only falls back to for the limit once executor.coreLimit is unset.
+							// The values deliberately differ from the CRD fields above so the
+							// assertions below can tell the two sources apart. Memory is left out
+							// on purpose: Spark sets the executor container's memory from
+							// spark.executor.memory plus its overhead, so a template memory value
+							// only risks the merged pod being rejected for request > limit.
+							Template: &corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:  common.Spark3DefaultExecutorContainerName,
+											Image: image,
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU: resource.MustParse("1"),
+												},
+												Limits: corev1.ResourceList{
+													corev1.ResourceCPU: resource.MustParse("2"),
+												},
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			}
@@ -189,30 +229,55 @@ var _ = Describe("SparkConnect CPU Resources", func() {
 
 			By("Waiting for the operator to create the server pod")
 			serverPod := waitForServerPod(ctx, conn)
+			serverContainer := containerByName(serverPod, common.SparkDriverContainerName)
 
 			By("Asserting spec.server.coreRequest wins for the CPU request")
-			cpuReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			cpuReq, ok := serverContainer.Resources.Requests[corev1.ResourceCPU]
 			Expect(ok).To(BeTrue())
 			Expect(cpuReq.Equal(resource.MustParse("500m"))).To(BeTrue(),
 				"spec.server.coreRequest (500m) should win over template CPU request (1), got %s", cpuReq.String())
 
 			By("Asserting spec.server.coreLimit wins for the CPU limit")
-			cpuLim, ok := serverPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+			cpuLim, ok := serverContainer.Resources.Limits[corev1.ResourceCPU]
 			Expect(ok).To(BeTrue())
 			Expect(cpuLim.Equal(resource.MustParse("1"))).To(BeTrue(),
 				"spec.server.coreLimit (1) should win over template CPU limit (2), got %s", cpuLim.String())
 
 			By("Asserting the template's memory request is preserved")
-			memReq, ok := serverPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+			memReq, ok := serverContainer.Resources.Requests[corev1.ResourceMemory]
 			Expect(ok).To(BeTrue(), "template memory request should be preserved")
 			Expect(memReq.Equal(resource.MustParse("1Gi"))).To(BeTrue(),
 				"expected template memory 1Gi to be preserved, got %s", memReq.String())
 
 			By("Asserting the template's memory limit is preserved")
-			memLim, ok := serverPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+			memLim, ok := serverContainer.Resources.Limits[corev1.ResourceMemory]
 			Expect(ok).To(BeTrue(), "template memory limit should be preserved")
 			Expect(memLim.Equal(resource.MustParse("1Gi"))).To(BeTrue(),
 				"expected template memory 1Gi to be preserved, got %s", memLim.String())
+		})
+
+		It("overrides template CPU request/limit on the executor pod", func() {
+			By("Creating the SparkConnect")
+			Expect(k8sClient.Create(ctx, conn)).To(Succeed())
+
+			By("Waiting for Spark to create the executor pod")
+			executorPod := waitForExecutorPod(ctx, conn)
+			executorContainer := containerByName(executorPod, common.Spark3DefaultExecutorContainerName)
+
+			By("Asserting spec.executor.coreRequest wins for the CPU request")
+			// Spark always sets the executor CPU request from
+			// spark.kubernetes.executor.request.cores, so the template's request never
+			// applies — the container must end up with the CRD value, not the template's.
+			cpuReq, ok := executorContainer.Resources.Requests[corev1.ResourceCPU]
+			Expect(ok).To(BeTrue(), "executor pod should have a CPU request set")
+			Expect(cpuReq.Equal(resource.MustParse("500m"))).To(BeTrue(),
+				"spec.executor.coreRequest (500m) should win over template CPU request (1), got %s", cpuReq.String())
+
+			By("Asserting spec.executor.coreLimit wins for the CPU limit")
+			cpuLim, ok := executorContainer.Resources.Limits[corev1.ResourceCPU]
+			Expect(ok).To(BeTrue(), "executor pod should have a CPU limit set")
+			Expect(cpuLim.Equal(resource.MustParse("1500m"))).To(BeTrue(),
+				"spec.executor.coreLimit (1500m) should win over template CPU limit (2), got %s", cpuLim.String())
 		})
 
 		It("creates a server pod that eventually becomes ready", func() {
@@ -252,4 +317,55 @@ func waitForServerPod(ctx context.Context, conn *v1alpha1.SparkConnect) *corev1.
 
 	Expect(serverPod.Spec.Containers).NotTo(BeEmpty(), "server pod should have at least one container")
 	return serverPod
+}
+
+// waitForExecutorPod waits until Spark has created the requested number of executor
+// pods for the SparkConnect and they are all ready, then returns the first one.
+// Executor pods are created by Spark rather than the operator, so they can only be
+// found by label — there is no computed pod name to look up.
+func waitForExecutorPod(ctx context.Context, conn *v1alpha1.SparkConnect) *corev1.Pod {
+	GinkgoHelper()
+
+	instances := int(ptr.Deref(conn.Spec.Executor.Instances, 0))
+	var executorPods *corev1.PodList
+	Eventually(func() bool {
+		executorPods = &corev1.PodList{}
+		if err := k8sClient.List(
+			ctx,
+			executorPods,
+			client.InNamespace(conn.Namespace),
+			client.MatchingLabels(sparkconnect.GetExecutorSelectorLabels(conn)),
+		); err != nil {
+			return false
+		}
+
+		if len(executorPods.Items) != instances {
+			return false
+		}
+
+		for i := range executorPods.Items {
+			if !util.IsPodReady(&executorPods.Items[i]) {
+				return false
+			}
+		}
+		return true
+	}).WithPolling(PollInterval).WithTimeout(WaitTimeout).Should(BeTrue(),
+		"expected %d ready executor pod(s) for %s within %s", instances, conn.Name, WaitTimeout)
+
+	Expect(executorPods.Items).NotTo(BeEmpty(), "expected at least one executor pod")
+	return &executorPods.Items[0]
+}
+
+// containerByName returns the container with the given name. It fails the test
+// rather than falling back to the first container when the name does not match, so
+// that a renamed or reordered container is caught instead of silently asserting
+// against an unrelated one.
+func containerByName(pod *corev1.Pod, name string) *corev1.Container {
+	GinkgoHelper()
+
+	container := util.GetContainerByNameOrFirst(pod.Spec.Containers, name)
+	Expect(container).NotTo(BeNil(), "pod %s should have at least one container", pod.Name)
+	Expect(container.Name).To(Equal(name),
+		"pod %s should have a container named %s, got %s", pod.Name, name, container.Name)
+	return container
 }
